@@ -1,0 +1,7 @@
+An ESP32 with three buttons and a connection to an exercise machine's
+rotation sensor (or perhaps a Hall effect sensor) can emulate the controller
+for CSA's Computer Athlete software: https://archive.org/details/computerathlete 
+
+This requires these libraries:
+ NimBLE-Arduino (I am using 2.1.2)
+ ESP32-BLE-Gamepad
