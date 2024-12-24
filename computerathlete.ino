@@ -1,6 +1,7 @@
 /**
  */
 #define GAMEPAD
+
 #ifdef GAMEPAD
 #include <BleGamepad.h>
 BleGamepad device;
@@ -16,11 +17,20 @@ BleKeyboard device;
 #define BOTH_BUTTON '8'
 #endif
 
+#include <Preferences.h>
+
+/* The original system probably had two interruptions per cycle. To match this, we generate a second 
+ *  synthetic signal every half rotation in doubleSignal mode. If you don't want this, hold the RESET
+ *  button while device is powering on to switch the doubleSignal mode. The device double-blinks the
+ *  LED on startup in doubleSignal mode.
+ */
+#define SYNTHETIC_SIGNAL_MS 50
+
 #include "debounce.h"
 
 #define LED 2
 
-#define RESET_TOUCH_PIN 4 
+//#define RESET_TOUCH_PIN 4 
 #define LEFT 32
 #define RIGHT 33
 #define RESET 14
@@ -28,8 +38,14 @@ BleKeyboard device;
 Debounce rotation(ROTATION, LOW, 5);
 Debounce left(LEFT, HIGH, 20);
 Debounce right(RIGHT, HIGH, 20);
-Debounce reset(RESET, HIGH, 20);//
+Debounce reset(RESET, HIGH, 20);
+Preferences myPreferences;
 
+boolean doubleSignal = true;
+uint32_t cycleStart = 0;
+uint32_t lastCycleLength = 0;
+uint32_t syntheticStart = 0;
+boolean needSynthetic = false;
 
 boolean pressedLeft = false;
 boolean pressedRight = false;
@@ -37,6 +53,7 @@ boolean pressedReset = false;
 boolean pressedBoth = false;
 boolean touchReset = false;
 boolean rotationActive = false;
+boolean connected = false;
 
 void setup() {
   pinMode(LED,OUTPUT);
@@ -46,16 +63,40 @@ void setup() {
   pinMode(RESET,INPUT_PULLDOWN);
   pinMode(ROTATION,INPUT);
   rotationActive = rotation.getState();
+
+  myPreferences.begin("myPrefs", false);
+
+  if (myPreferences.isKey("doubleSignal")) {
+    doubleSignal = myPreferences.getBool("doubleSignal");
+  }
   
+  if (digitalRead(RESET)) {
+    doubleSignal = ! doubleSignal;
+    myPreferences.putBool("doubleSignal", doubleSignal);
+  }
+  
+  digitalWrite(LED, 1);
+  delay(200);
+  digitalWrite(LED, 0);
+  if (doubleSignal) {
+    delay(200);
+    digitalWrite(LED, 1);
+    delay(200);
+    digitalWrite(LED, 0);
+  } 
+  delay(500);
+
 //  Serial.begin(115200);
 //  Serial.println("Starting BLE work!");
   device.begin();
 }
 
 void loop() {
-
   if(device.isConnected()) {
-    digitalWrite(LED,1);
+    if (!connected) {
+      digitalWrite(LED,1);
+      connected = true;
+    }
     
     boolean leftState = left.getState();
     boolean rightState = right.getState();
@@ -135,6 +176,7 @@ void loop() {
       }
     }
 
+    uint32_t currentTime = millis();
 /*
     if (touchRead(RESET_TOUCH_PIN)<40) {
       if (!touchReset) {
@@ -154,12 +196,41 @@ void loop() {
       if (!rotationActive) {
         rotationActive = true;
         device.press(MOVE_BUTTON);
+        digitalWrite(LED,0);
+        if (doubleSignal) {
+          syntheticStart = 0;
+          needSynthetic = false;
+        }
       }
     }
     else {
       if (rotationActive) {
         rotationActive = false;
         device.release(MOVE_BUTTON);
+        digitalWrite(LED,1);
+        if (doubleSignal) {
+          syntheticStart = 0;
+          if (cycleStart > 0) {
+            lastCycleLength = currentTime-cycleStart;
+          }
+          cycleStart = currentTime;
+          needSynthetic = true;
+        }
+      }
+    }
+
+    if (doubleSignal) {
+      if (needSynthetic && currentTime >= cycleStart + lastCycleLength / 2) {
+        needSynthetic = false;
+        device.press(MOVE_BUTTON);
+        digitalWrite(LED,0);
+        syntheticStart = currentTime;
+      }
+      else if (syntheticStart > 0 && currentTime >= syntheticStart + SYNTHETIC_SIGNAL_MS) {
+        needSynthetic = false;
+        device.release(MOVE_BUTTON);
+        digitalWrite(LED,1);
+        syntheticStart = 0;
       }
     }
 
@@ -171,7 +242,8 @@ void loop() {
 
   }
   else {
-//    Serial.println("Waiting 2 seconds...");
+    connected = false;
+    digitalWrite(LED, 0);
     delay(2000);
   }
 }
