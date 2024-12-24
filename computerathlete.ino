@@ -78,7 +78,7 @@ void setup() {
   digitalWrite(LED, 1);
   delay(200);
   digitalWrite(LED, 0);
-  if (doubleSignal) {
+  if (doubleSignal) { 
     delay(200);
     digitalWrite(LED, 1);
     delay(200);
